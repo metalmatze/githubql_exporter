@@ -26,6 +26,10 @@ type OrganizationCollector struct {
 	pushed       *prometheus.Desc
 	stargazers   *prometheus.Desc
 	watchers     *prometheus.Desc
+
+	rateLimit          *prometheus.Desc
+	rateLimitRemaining *prometheus.Desc
+	rateLimitReset     *prometheus.Desc
 }
 
 type (
@@ -66,6 +70,12 @@ type (
 				}
 			} `graphql:"repositories(first: 100)"`
 		} `graphql:"organization(login: $organization)"`
+		RateLimit RateLimit
+	}
+	RateLimit struct {
+		Limit     githubql.Int
+		Remaining githubql.Int
+		ResetAt   githubql.DateTime
 	}
 )
 
@@ -116,6 +126,22 @@ func NewOrganizationCollector(logger log.Logger, client *githubql.Client, organi
 			"Number of users that watch the repo",
 			[]string{"onwer", "name"}, nil,
 		),
+
+		rateLimit: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "rate_limit", "limit"),
+			"The rate limit",
+			nil, nil,
+		),
+		rateLimitRemaining: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "rate_limit", "remaining"),
+			"The remaining requests left until hitting the rate limit",
+			nil, nil,
+		),
+		rateLimitReset: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "rate_limit", "reset_seconds"),
+			"Unix timestamp when the rate limit will be reset",
+			nil, nil,
+		),
 	}
 }
 
@@ -130,10 +156,16 @@ func (c *OrganizationCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.pushed
 	ch <- c.stargazers
 	ch <- c.watchers
+
+	ch <- c.rateLimit
+	ch <- c.rateLimitRemaining
+	ch <- c.rateLimitReset
 }
 
 // Collect is called by the Prometheus registry when collecting metrics.
 func (c *OrganizationCollector) Collect(ch chan<- prometheus.Metric) {
+	var rateLimit RateLimit
+
 	for _, organization := range c.organizations {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -147,6 +179,8 @@ func (c *OrganizationCollector) Collect(ch chan<- prometheus.Metric) {
 			level.Warn(c.logger).Log("msg", "failed to execute organization query successfully", "err", err)
 			return
 		}
+
+		rateLimit = query.RateLimit
 
 		for _, repo := range query.Organization.Repositories.Nodes {
 			ch <- prometheus.MustNewConstMetric(
@@ -217,4 +251,20 @@ func (c *OrganizationCollector) Collect(ch chan<- prometheus.Metric) {
 			)
 		}
 	}
+
+	ch <- prometheus.MustNewConstMetric(
+		c.rateLimit,
+		prometheus.GaugeValue,
+		float64(rateLimit.Limit),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.rateLimitRemaining,
+		prometheus.GaugeValue,
+		float64(rateLimit.Remaining),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.rateLimitReset,
+		prometheus.GaugeValue,
+		float64(rateLimit.ResetAt.Unix()),
+	)
 }
