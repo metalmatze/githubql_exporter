@@ -52,7 +52,7 @@ func main() {
 
 	c := Config{
 		WebPath: "/metrics",
-		WebAddr: ":9212",
+		WebAddr: ":9276",
 	}
 	arg.MustParse(&c)
 
