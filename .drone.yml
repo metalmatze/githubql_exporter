@@ -3,14 +3,13 @@ workspace:
   path: src/github.com/metalmatze/githubql_exporter
 
 pipeline:
-  test:
-    image: golang:1.8
-    commands:
-      - go test -v ./...
-
   build:
     image: golang:1.8
     commands:
+      - make fmt
+      - make vet
+      - make lint
+      - make test
       - make build
 
   docker:
@@ -22,10 +21,24 @@ pipeline:
       branch: master
       event: push
 
+  release:
+    image: golang:1.8
+    commands:
+      - make release
+    when:
+      event: tag
+
   docker:
     image: plugins/docker
     repo: metalmatze/githubql_exporter
     secrets: [ docker_username, docker_password ]
     tag: [ 0, 0.1 ]
+    when:
+      event: tag
+
+  github:
+    image: plugins/github-release
+    secrets: [ github_release_api_key ]
+    files: dist/*
     when:
       event: tag
