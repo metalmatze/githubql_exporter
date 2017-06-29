@@ -1,0 +1,31 @@
+workspace:
+  base: /go
+  path: src/github.com/metalmatze/githubql_exporter
+
+pipeline:
+  test:
+    image: golang:1.8
+    commands:
+      - go test -v ./...
+
+  build:
+    image: golang:1.8
+    commands:
+      - make build
+
+  docker:
+    image: plugins/docker
+    repo: metalmatze/githubql_exporter
+    secrets: [ docker_username, docker_password ]
+    tag: [ latest ]
+    when:
+      branch: master
+      event: push
+
+  docker:
+    image: plugins/docker
+    repo: metalmatze/githubql_exporter
+    secrets: [ docker_username, docker_password ]
+    tag: [ 0, 0.1 ]
+    when:
+      event: tag
