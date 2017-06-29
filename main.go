@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	arg "github.com/alexflint/go-arg"
@@ -83,7 +84,9 @@ func main() {
 	httpClient := oauth2.NewClient(context.Background(), c.Token())
 	client := githubql.NewClient(httpClient)
 
-	prometheus.MustRegister(collector.NewOrganizationCollector(logger, client, c.Orgs))
+	organizations := strings.Split(c.Orgs, ",")
+
+	prometheus.MustRegister(collector.NewOrganizationCollector(logger, client, organizations))
 
 	http.Handle(c.WebPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

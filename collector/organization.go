@@ -14,9 +14,9 @@ const namespace = "github"
 
 // OrganizationCollector collects metrics about the account.
 type OrganizationCollector struct {
-	logger log.Logger
-	client *githubql.Client
-	orgs   string
+	logger        log.Logger
+	client        *githubql.Client
+	organizations []string
 
 	created      *prometheus.Desc
 	diskUsage    *prometheus.Desc
@@ -70,11 +70,11 @@ type (
 )
 
 // NewOrganizationCollector returns a new OrganizationCollector.
-func NewOrganizationCollector(logger log.Logger, client *githubql.Client, orgs string) *OrganizationCollector {
+func NewOrganizationCollector(logger log.Logger, client *githubql.Client, organizations []string) *OrganizationCollector {
 	return &OrganizationCollector{
-		logger: logger,
-		client: client,
-		orgs:   orgs,
+		logger:        logger,
+		client:        client,
+		organizations: organizations,
 
 		created: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "repo", "created"),
@@ -134,85 +134,87 @@ func (c *OrganizationCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect is called by the Prometheus registry when collecting metrics.
 func (c *OrganizationCollector) Collect(ch chan<- prometheus.Metric) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	for _, organization := range c.organizations {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	variables := map[string]interface{}{
-		"organization": githubql.String(c.orgs),
-	}
+		variables := map[string]interface{}{
+			"organization": githubql.String(organization),
+		}
 
-	var query organizationQuery
-	if err := c.client.Query(ctx, &query, variables); err != nil {
-		level.Warn(c.logger).Log("msg", "failed to execute organization query successfully", "err", err)
-		return
-	}
+		var query organizationQuery
+		if err := c.client.Query(ctx, &query, variables); err != nil {
+			level.Warn(c.logger).Log("msg", "failed to execute organization query successfully", "err", err)
+			return
+		}
 
-	for _, repo := range query.Organization.Repositories.Nodes {
-		ch <- prometheus.MustNewConstMetric(
-			c.created,
-			prometheus.GaugeValue,
-			float64(repo.CreatedAt.Unix()),
-			string(query.Organization.Login), string(repo.Name),
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.diskUsage,
-			prometheus.GaugeValue,
-			float64(repo.DiskUsage),
-			string(query.Organization.Login), string(repo.Name),
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.forks,
-			prometheus.GaugeValue,
-			float64(repo.Forks.TotalCount),
-			string(query.Organization.Login), string(repo.Name),
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.issues,
-			prometheus.GaugeValue,
-			float64(repo.IssuesOpen.TotalCount),
-			string(query.Organization.Login), string(repo.Name), "open",
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.issues,
-			prometheus.GaugeValue,
-			float64(repo.IssuesClosed.TotalCount),
-			string(query.Organization.Login), string(repo.Name), "closed",
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.pullRequests,
-			prometheus.GaugeValue,
-			float64(repo.PullRequestsOpen.TotalCount),
-			string(query.Organization.Login), string(repo.Name), "open",
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.pullRequests,
-			prometheus.GaugeValue,
-			float64(repo.PullRequestsClosed.TotalCount),
-			string(query.Organization.Login), string(repo.Name), "closed",
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.pullRequests,
-			prometheus.GaugeValue,
-			float64(repo.PullRequestsMerged.TotalCount),
-			string(query.Organization.Login), string(repo.Name), "merged",
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.pushed,
-			prometheus.GaugeValue,
-			float64(repo.PushedAt.Unix()),
-			string(query.Organization.Login), string(repo.Name),
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.stargazers,
-			prometheus.GaugeValue,
-			float64(repo.Stargazers.TotalCount),
-			string(query.Organization.Login), string(repo.Name),
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.watchers,
-			prometheus.GaugeValue,
-			float64(repo.Watchers.TotalCount),
-			string(query.Organization.Login), string(repo.Name),
-		)
+		for _, repo := range query.Organization.Repositories.Nodes {
+			ch <- prometheus.MustNewConstMetric(
+				c.created,
+				prometheus.GaugeValue,
+				float64(repo.CreatedAt.Unix()),
+				string(query.Organization.Login), string(repo.Name),
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.diskUsage,
+				prometheus.GaugeValue,
+				float64(repo.DiskUsage),
+				string(query.Organization.Login), string(repo.Name),
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.forks,
+				prometheus.GaugeValue,
+				float64(repo.Forks.TotalCount),
+				string(query.Organization.Login), string(repo.Name),
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.issues,
+				prometheus.GaugeValue,
+				float64(repo.IssuesOpen.TotalCount),
+				string(query.Organization.Login), string(repo.Name), "open",
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.issues,
+				prometheus.GaugeValue,
+				float64(repo.IssuesClosed.TotalCount),
+				string(query.Organization.Login), string(repo.Name), "closed",
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.pullRequests,
+				prometheus.GaugeValue,
+				float64(repo.PullRequestsOpen.TotalCount),
+				string(query.Organization.Login), string(repo.Name), "open",
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.pullRequests,
+				prometheus.GaugeValue,
+				float64(repo.PullRequestsClosed.TotalCount),
+				string(query.Organization.Login), string(repo.Name), "closed",
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.pullRequests,
+				prometheus.GaugeValue,
+				float64(repo.PullRequestsMerged.TotalCount),
+				string(query.Organization.Login), string(repo.Name), "merged",
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.pushed,
+				prometheus.GaugeValue,
+				float64(repo.PushedAt.Unix()),
+				string(query.Organization.Login), string(repo.Name),
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.stargazers,
+				prometheus.GaugeValue,
+				float64(repo.Stargazers.TotalCount),
+				string(query.Organization.Login), string(repo.Name),
+			)
+			ch <- prometheus.MustNewConstMetric(
+				c.watchers,
+				prometheus.GaugeValue,
+				float64(repo.Watchers.TotalCount),
+				string(query.Organization.Login), string(repo.Name),
+			)
+		}
 	}
 }
