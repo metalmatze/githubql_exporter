@@ -70,9 +70,9 @@ type (
 				}
 			} `graphql:"repositories(first: 100)"`
 		} `graphql:"organization(login: $organization)"`
-		RateLimit RateLimit
+		RateLimit rateLimit
 	}
-	RateLimit struct {
+	rateLimit struct {
 		Limit     githubql.Int
 		Remaining githubql.Int
 		ResetAt   githubql.DateTime
@@ -164,7 +164,7 @@ func (c *OrganizationCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect is called by the Prometheus registry when collecting metrics.
 func (c *OrganizationCollector) Collect(ch chan<- prometheus.Metric) {
-	var rateLimit RateLimit
+	var rateLimit rateLimit
 
 	for _, organization := range c.organizations {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
