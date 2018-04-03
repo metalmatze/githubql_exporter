@@ -114,17 +114,17 @@ func NewOrganizationCollector(logger log.Logger, client *githubql.Client, organi
 		pushed: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "repo", "pushed"),
 			"Unix timestamp of then the repo was pushed to the last time",
-			[]string{"onwer", "name"}, nil,
+			[]string{"owner", "name"}, nil,
 		),
 		stargazers: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "repo", "stargazers"),
 			"Number of users that star the repo",
-			[]string{"onwer", "name"}, nil,
+			[]string{"owner", "name"}, nil,
 		),
 		watchers: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "repo", "watchers"),
 			"Number of users that watch the repo",
-			[]string{"onwer", "name"}, nil,
+			[]string{"owner", "name"}, nil,
 		),
 
 		rateLimit: prometheus.NewDesc(
