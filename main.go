@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"runtime"
@@ -57,6 +58,13 @@ func main() {
 	}
 	arg.MustParse(&c)
 
+	if tokfile := os.Getenv("GITHUB_TOKEN_FILE"); c.GitHubToken == "" && tokfile != "" {
+		t, err := ioutil.ReadFile(tokfile)
+		if err != nil {
+			panic(err)
+		}
+		c.GitHubToken = strings.TrimSpace(string(t))
+	}
 	if c.GitHubToken == "" {
 		panic("GITHUB_TOKEN is required")
 	}
