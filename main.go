@@ -40,6 +40,7 @@ type Config struct {
 	Orgs        string `arg:"env:ORGS"`
 	WebAddr     string `arg:"env:WEB_ADDR"`
 	WebPath     string `arg:"env:WEB_PATH"`
+	MaxRepos    int    `arg:"env:MAX_REPOS"`
 }
 
 // Token returns a token or an error.
@@ -53,8 +54,9 @@ func main() {
 	_ = godotenv.Load()
 
 	c := Config{
-		WebPath: "/metrics",
-		WebAddr: ":9276",
+		WebPath:  "/metrics",
+		WebAddr:  ":9276",
+		MaxRepos: 100,
 	}
 	arg.MustParse(&c)
 
@@ -94,7 +96,7 @@ func main() {
 
 	organizations := strings.Split(c.Orgs, ",")
 
-	prometheus.MustRegister(collector.NewOrganizationCollector(logger, client, organizations))
+	prometheus.MustRegister(collector.NewOrganizationCollector(logger, client, organizations, c.MaxRepos))
 
 	http.Handle(c.WebPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
