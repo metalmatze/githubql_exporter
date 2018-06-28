@@ -17,6 +17,7 @@ type OrganizationCollector struct {
 	logger        log.Logger
 	client        *githubql.Client
 	organizations []string
+	maxRepos      int
 
 	created      *prometheus.Desc
 	diskUsage    *prometheus.Desc
@@ -68,7 +69,11 @@ type (
 						TotalCount githubql.Int
 					} `graphql:"PullRequestsMerged: pullRequests(states: MERGED)"`
 				}
-			} `graphql:"repositories(first: 100)"`
+				PageInfo struct {
+					EndCursor   githubql.String
+					HasNextPage bool
+				}
+			} `graphql:"repositories(first: $perPage, after: $repositoriesCursor)"`
 		} `graphql:"organization(login: $organization)"`
 		RateLimit rateLimit
 	}
@@ -80,11 +85,12 @@ type (
 )
 
 // NewOrganizationCollector returns a new OrganizationCollector.
-func NewOrganizationCollector(logger log.Logger, client *githubql.Client, organizations []string) *OrganizationCollector {
+func NewOrganizationCollector(logger log.Logger, client *githubql.Client, organizations []string, maxRepos int) *OrganizationCollector {
 	return &OrganizationCollector{
 		logger:        logger,
 		client:        client,
 		organizations: organizations,
+		maxRepos:      maxRepos,
 
 		created: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "repo", "created"),
@@ -166,89 +172,104 @@ func (c *OrganizationCollector) Describe(ch chan<- *prometheus.Desc) {
 func (c *OrganizationCollector) Collect(ch chan<- prometheus.Metric) {
 	var rateLimit rateLimit
 
+	reposLeft := c.maxRepos
 	for _, organization := range c.organizations {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
 		variables := map[string]interface{}{
-			"organization": githubql.String(organization),
+			"organization":       githubql.String(organization),
+			"perPage":            githubql.Int(100),
+			"repositoriesCursor": (*githubql.String)(nil),
 		}
 
-		var query organizationQuery
-		if err := c.client.Query(ctx, &query, variables); err != nil {
-			level.Warn(c.logger).Log("msg", "failed to execute organization query successfully", "err", err)
-			return
-		}
+		for reposLeft > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
 
-		rateLimit = query.RateLimit
+			if reposLeft < 100 {
+				variables["perPage"] = githubql.Int(reposLeft)
+			}
 
-		for _, repo := range query.Organization.Repositories.Nodes {
-			ch <- prometheus.MustNewConstMetric(
-				c.created,
-				prometheus.GaugeValue,
-				float64(repo.CreatedAt.Unix()),
-				string(query.Organization.Login), string(repo.Name),
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.diskUsage,
-				prometheus.GaugeValue,
-				float64(repo.DiskUsage),
-				string(query.Organization.Login), string(repo.Name),
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.forks,
-				prometheus.GaugeValue,
-				float64(repo.Forks.TotalCount),
-				string(query.Organization.Login), string(repo.Name),
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.issues,
-				prometheus.GaugeValue,
-				float64(repo.IssuesOpen.TotalCount),
-				string(query.Organization.Login), string(repo.Name), "open",
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.issues,
-				prometheus.GaugeValue,
-				float64(repo.IssuesClosed.TotalCount),
-				string(query.Organization.Login), string(repo.Name), "closed",
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.pullRequests,
-				prometheus.GaugeValue,
-				float64(repo.PullRequestsOpen.TotalCount),
-				string(query.Organization.Login), string(repo.Name), "open",
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.pullRequests,
-				prometheus.GaugeValue,
-				float64(repo.PullRequestsClosed.TotalCount),
-				string(query.Organization.Login), string(repo.Name), "closed",
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.pullRequests,
-				prometheus.GaugeValue,
-				float64(repo.PullRequestsMerged.TotalCount),
-				string(query.Organization.Login), string(repo.Name), "merged",
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.pushed,
-				prometheus.GaugeValue,
-				float64(repo.PushedAt.Unix()),
-				string(query.Organization.Login), string(repo.Name),
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.stargazers,
-				prometheus.GaugeValue,
-				float64(repo.Stargazers.TotalCount),
-				string(query.Organization.Login), string(repo.Name),
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.watchers,
-				prometheus.GaugeValue,
-				float64(repo.Watchers.TotalCount),
-				string(query.Organization.Login), string(repo.Name),
-			)
+			var query organizationQuery
+			if err := c.client.Query(ctx, &query, variables); err != nil {
+				level.Warn(c.logger).Log("msg", "failed to execute organization query successfully", "err", err)
+				return
+			}
+			reposLeft -= len(query.Organization.Repositories.Nodes)
+
+			rateLimit = query.RateLimit
+
+			for _, repo := range query.Organization.Repositories.Nodes {
+				ch <- prometheus.MustNewConstMetric(
+					c.created,
+					prometheus.GaugeValue,
+					float64(repo.CreatedAt.Unix()),
+					string(query.Organization.Login), string(repo.Name),
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.diskUsage,
+					prometheus.GaugeValue,
+					float64(repo.DiskUsage),
+					string(query.Organization.Login), string(repo.Name),
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.forks,
+					prometheus.GaugeValue,
+					float64(repo.Forks.TotalCount),
+					string(query.Organization.Login), string(repo.Name),
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.issues,
+					prometheus.GaugeValue,
+					float64(repo.IssuesOpen.TotalCount),
+					string(query.Organization.Login), string(repo.Name), "open",
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.issues,
+					prometheus.GaugeValue,
+					float64(repo.IssuesClosed.TotalCount),
+					string(query.Organization.Login), string(repo.Name), "closed",
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.pullRequests,
+					prometheus.GaugeValue,
+					float64(repo.PullRequestsOpen.TotalCount),
+					string(query.Organization.Login), string(repo.Name), "open",
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.pullRequests,
+					prometheus.GaugeValue,
+					float64(repo.PullRequestsClosed.TotalCount),
+					string(query.Organization.Login), string(repo.Name), "closed",
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.pullRequests,
+					prometheus.GaugeValue,
+					float64(repo.PullRequestsMerged.TotalCount),
+					string(query.Organization.Login), string(repo.Name), "merged",
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.pushed,
+					prometheus.GaugeValue,
+					float64(repo.PushedAt.Unix()),
+					string(query.Organization.Login), string(repo.Name),
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.stargazers,
+					prometheus.GaugeValue,
+					float64(repo.Stargazers.TotalCount),
+					string(query.Organization.Login), string(repo.Name),
+				)
+				ch <- prometheus.MustNewConstMetric(
+					c.watchers,
+					prometheus.GaugeValue,
+					float64(repo.Watchers.TotalCount),
+					string(query.Organization.Login), string(repo.Name),
+				)
+			}
+
+			if !query.Organization.Repositories.PageInfo.HasNextPage {
+				break
+			}
+			variables["repositoriesCursor"] = githubql.NewString(query.Organization.Repositories.PageInfo.EndCursor)
 		}
 	}
 
